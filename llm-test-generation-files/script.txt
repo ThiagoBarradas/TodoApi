@@ -1,0 +1,9 @@
+# executar no dir root 
+
+dotnet tool install -g dotnet-stryker
+dotnet stryker --output llm-test-generation-files
+
+dotnet tool install --global coverlet.console 
+dotnet add TodoApi.Tests/TodoApi.Tests.csproj package coverlet.msbuild
+dotnet add TodoApi.Tests/TodoApi.Tests.csproj package XunitXml.TestLogger
+dotnet test /p:CollectCoverage=true /p:CoverletOutputFormat=\"opencover,cobertura\" /p:CoverletOutput=../llm-test-generation-files/reports/result /p:Exclude=[xunit.*]* TodoApi.sln --test-adapter-path:. --logger:"xunit;LogFilePath=../llm-test-generation-files/reports/result.xunit.xml"

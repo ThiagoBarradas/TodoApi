@@ -1,0 +1,57 @@
+<assemblies timestamp="09/30/2024 19:17:20">
+  <assembly name="C:\GIT\TodoApi\TodoApi.Tests\bin\Debug\net7.0\TodoApi.Tests.dll" run-date="2024-09-30" run-time="19:17:20" total="16" passed="16" failed="0" skipped="0" time="4.998" errors="0">
+    <errors />
+    <collection total="10" passed="10" failed="0" skipped="0" name="Test collection for TodoApi.Tests.TodoApiTests" time="2.592">
+      <test name="TodoApi.Tests.TodoApiTests.AdminCanUpdateUnownedTodos" type="TodoApi.Tests.TodoApiTests" method="AdminCanUpdateUnownedTodos" time="1.4074115" result="Pass">
+        <traits />
+      </test>
+      <test name="TodoApi.Tests.TodoApiTests.DeleteTodos" type="TodoApi.Tests.TodoApiTests" method="DeleteTodos" time="0.1095967" result="Pass">
+        <traits />
+      </test>
+      <test name="TodoApi.Tests.TodoApiTests.PostTodos" type="TodoApi.Tests.TodoApiTests" method="PostTodos" time="0.1218860" result="Pass">
+        <traits />
+      </test>
+      <test name="TodoApi.Tests.TodoApiTests.CanUpdateOwnedTodos" type="TodoApi.Tests.TodoApiTests" method="CanUpdateOwnedTodos" time="0.1296566" result="Pass">
+        <traits />
+      </test>
+      <test name="TodoApi.Tests.TodoApiTests.AdminCanDeleteUnownedTodos" type="TodoApi.Tests.TodoApiTests" method="AdminCanDeleteUnownedTodos" time="0.2103684" result="Pass">
+        <traits />
+      </test>
+      <test name="TodoApi.Tests.TodoApiTests.GetTodosWithoutDbUser" type="TodoApi.Tests.TodoApiTests" method="GetTodosWithoutDbUser" time="0.0485303" result="Pass">
+        <traits />
+      </test>
+      <test name="TodoApi.Tests.TodoApiTests.PostingTodoWithoutTitleReturnsProblemDetails" type="TodoApi.Tests.TodoApiTests" method="PostingTodoWithoutTitleReturnsProblemDetails" time="0.1273399" result="Pass">
+        <traits />
+      </test>
+      <test name="TodoApi.Tests.TodoApiTests.GetTodos" type="TodoApi.Tests.TodoApiTests" method="GetTodos" time="0.0954296" result="Pass">
+        <traits />
+      </test>
+      <test name="TodoApi.Tests.TodoApiTests.CanOnlyGetTodosPostedBySameUser" type="TodoApi.Tests.TodoApiTests" method="CanOnlyGetTodosPostedBySameUser" time="0.1757535" result="Pass">
+        <traits />
+      </test>
+      <test name="TodoApi.Tests.TodoApiTests.CannotDeleteUnownedTodos" type="TodoApi.Tests.TodoApiTests" method="CannotDeleteUnownedTodos" time="0.1656851" result="Pass">
+        <traits />
+      </test>
+    </collection>
+    <collection total="6" passed="6" failed="0" skipped="0" name="Test collection for TodoApi.Tests.UserApiTests" time="1.729">
+      <test name="TodoApi.Tests.UserApiTests.CanCreateAUser" type="TodoApi.Tests.UserApiTests" method="CanCreateAUser" time="1.1577734" result="Pass">
+        <traits />
+      </test>
+      <test name="TodoApi.Tests.UserApiTests.CanGetATokenForValidUser" type="TodoApi.Tests.UserApiTests" method="CanGetATokenForValidUser" time="0.2041088" result="Pass">
+        <traits />
+      </test>
+      <test name="TodoApi.Tests.UserApiTests.BadRequestForInvalidCredentials" type="TodoApi.Tests.UserApiTests" method="BadRequestForInvalidCredentials" time="0.1817636" result="Pass">
+        <traits />
+      </test>
+      <test name="TodoApi.Tests.UserApiTests.MissingUserOrPasswordReturnsBadRequest" type="TodoApi.Tests.UserApiTests" method="MissingUserOrPasswordReturnsBadRequest" time="0.0543384" result="Pass">
+        <traits />
+      </test>
+      <test name="TodoApi.Tests.UserApiTests.MissingUsernameOrProviderKeyReturnsBadRequest" type="TodoApi.Tests.UserApiTests" method="MissingUsernameOrProviderKeyReturnsBadRequest" time="0.0406814" result="Pass">
+        <traits />
+      </test>
+      <test name="TodoApi.Tests.UserApiTests.CanGetATokenForExternalUser" type="TodoApi.Tests.UserApiTests" method="CanGetATokenForExternalUser" time="0.0907053" result="Pass">
+        <traits />
+      </test>
+    </collection>
+  </assembly>
+</assemblies>

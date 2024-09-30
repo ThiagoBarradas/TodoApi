@@ -21,6 +21,21 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Todo.Web.Client", "Todo.Web
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Todo.Web.Shared", "Todo.Web\Shared\Todo.Web.Shared.csproj", "{272942F6-94E8-4D6B-8AD8-C4CCA305836D}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "llm-test-generation-files", "llm-test-generation-files", "{0466BD61-048D-4882-A45B-CD770EB9180E}"
+	ProjectSection(SolutionItems) = preProject
+		llm-test-generation-files\openapi.json = llm-test-generation-files\openapi.json
+		llm-test-generation-files\script.txt = llm-test-generation-files\script.txt
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "reports", "reports", "{6BB3E33A-38CD-4D83-8A66-7EBD74286B73}"
+	ProjectSection(SolutionItems) = preProject
+		llm-test-generation-files\reports\mutation-report.html = llm-test-generation-files\reports\mutation-report.html
+		llm-test-generation-files\reports\result.cobertura.xml = llm-test-generation-files\reports\result.cobertura.xml
+		llm-test-generation-files\reports\result.opencover.xml = llm-test-generation-files\reports\result.opencover.xml
+		llm-test-generation-files\reports\result.xunit.xml = llm-test-generation-files\reports\result.xunit.xml
+		llm-test-generation-files\reports\test_coverage.png = llm-test-generation-files\reports\test_coverage.png
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -50,6 +65,10 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{0466BD61-048D-4882-A45B-CD770EB9180E} = {7FAB2FEF-77C3-4519-AA2E-0CCCDFE1FC13}
+		{6BB3E33A-38CD-4D83-8A66-7EBD74286B73} = {0466BD61-048D-4882-A45B-CD770EB9180E}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {28EAB679-0C71-494A-A1EC-D29DEDDD402E}

@@ -51,7 +51,7 @@ public class Program
             catch (Exception ex)
             {
                 var logger = services.GetRequiredService<ILogger<Program>>();
-                logger.LogError(ex, "Ocorreu um erro ao aplicar as migrações no banco de dados.");
+                logger.LogError(ex, "Ocorreu um erro ao aplicar as migraçoes no banco de dados.");
             }
         }
 

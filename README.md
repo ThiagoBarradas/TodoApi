@@ -214,3 +214,14 @@ docker run -d --name jaeger -e COLLECTOR_ZIPKIN_HOST_PORT=:9411 -e COLLECTOR_OTL
 
 1. Open [Jaeger in your browser](http://localhost:16686/)
 1. View the collected spans
+
+### Build and publish to docker hub
+
+`dotnet publish TodoApi\TodoApi.csproj --output TodoApi\bin\app`
+`docker build -t thiagobarradas/todoapi:latest .`
+`docker login # put credentials`
+`docker push thiagobarradas/todoapi:latest`
+
+#### Running locally
+
+`docker run -p 5000:80 -d thiagobarradas/todoapi:latest --name todoapi`

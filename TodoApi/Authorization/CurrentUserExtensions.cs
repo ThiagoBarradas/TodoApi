@@ -6,14 +6,7 @@ namespace TodoApi;
 
 public static class CurrentUserExtensions
 {
-    public static IServiceCollection AddCurrentUser(this IServiceCollection services)
-    {
-        services.AddScoped<CurrentUser>();
-        services.AddScoped<IClaimsTransformation, ClaimsTransformation>();
-        return services;
-    }
-
-    private sealed class ClaimsTransformation : IClaimsTransformation
+    public sealed class ClaimsTransformation : IClaimsTransformation
     {
         private readonly CurrentUser _currentUser;
         private readonly UserManager<TodoUser> _userManager;

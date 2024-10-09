@@ -8,15 +8,6 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace TodoApi;
 
-public static class AuthenticationServiceExtensions
-{
-    public static IServiceCollection AddTokenService(this IServiceCollection services)
-    {
-        // Wire up the token service
-        return services.AddSingleton<ITokenService, TokenService>();
-    }
-}
-
 public interface ITokenService
 {
     // Generate a JWT token for the specified user name and admin role

@@ -1,3 +1,10 @@
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Cryptography;
+using TodoApi.Extensions;
+using static TodoApi.AuthorizationHandlerExtensions;
+using static TodoApi.CurrentUserExtensions;
+
 public class Program
 {
     public static void Main(string[] args)
@@ -5,11 +12,12 @@ public class Program
         var builder = WebApplication.CreateBuilder(args);
 
         // Configure auth
-        builder.AddAuthentication();
-        builder.Services.AddAuthorizationBuilder().AddCurrentUserHandler();
+        builder.Services.AddAuthentication().AddJwtBearer();
+        builder.Services.AddAuthorizationBuilder();
+        builder.Services.AddScoped<IAuthorizationHandler, CheckCurrentUserAuthHandler>();
 
         // Add the service to generate JWT tokens
-        builder.Services.AddTokenService();
+        builder.Services.AddSingleton<ITokenService, TokenService>();
 
         // Configure the database
         var connectionString = builder.Configuration.GetConnectionString("Todos") ?? "Data Source=.db/Todos.db";
@@ -20,11 +28,14 @@ public class Program
                         .AddEntityFrameworkStores<TodoDbContext>();
 
         // State that represents the current user from the database *and* the request
-        builder.Services.AddCurrentUser();
+        builder.Services.AddScoped<CurrentUser>();
+        builder.Services.AddScoped<IClaimsTransformation, ClaimsTransformation>();
 
         // Configure Open API
         builder.Services.AddEndpointsApiExplorer();
-        builder.Services.AddSwaggerGen(o => o.InferSecuritySchemes());
+        builder.Services.AddSwaggerGen(o => {
+            o.DescribeApi();
+        });
 
         // Configure rate limiting
         builder.Services.AddRateLimiting();
@@ -51,10 +62,9 @@ public class Program
             catch (Exception ex)
             {
                 var logger = services.GetRequiredService<ILogger<Program>>();
-                logger.LogError(ex, "Ocorreu um erro ao aplicar as migraçoes no banco de dados.");
+                logger.LogError(ex, "Error to apply migrations");
             }
         }
-
         
         app.UseSwagger();
         app.UseSwaggerUI();

@@ -22,7 +22,6 @@ public sealed class TokenService : ITokenService
 
     public TokenService(IAuthenticationConfigurationProvider authenticationConfigurationProvider)
     {
-        // We're reading the authentication configuration for the Bearer scheme
         var bearerSection = authenticationConfigurationProvider.GetSchemeConfiguration(JwtBearerDefaults.AuthenticationScheme);
 
         // An example of what the expected schema looks like
@@ -38,8 +37,10 @@ public sealed class TokenService : ITokenService
 
         var section = bearerSection.GetSection("SigningKeys:0");
 
-        _issuer = bearerSection["ValidIssuer"] ?? throw new InvalidOperationException("Issuer is not specified");
-        var signingKeyBase64 = section["Value"] ?? throw new InvalidOperationException("Signing key is not specified");
+        var validIssuer = bearerSection["ValidIssuer"];
+        _issuer = validIssuer ?? "dotnet-user-jwts";
+        var value = section["Value"];
+        var signingKeyBase64 = value ?? "DCmbsZQIbC0VT3xssf+mkrAhpnVPw/x38jYliIg7Oas=";
 
         var signingKeyBytes = Convert.FromBase64String(signingKeyBase64);
 
@@ -62,11 +63,6 @@ public sealed class TokenService : ITokenService
         var id = Guid.NewGuid().ToString().GetHashCode().ToString("x", CultureInfo.InvariantCulture);
 
         identity.AddClaim(new Claim(JwtRegisteredClaimNames.Jti, id));
-
-        if (isAdmin)
-        {
-            identity.AddClaim(new Claim(ClaimTypes.Role, "admin"));
-        }
 
         identity.AddClaims(_audiences);
 

@@ -34,7 +34,9 @@ public static class UsersApi
 
             if (user is null || !await userManager.CheckPasswordAsync(user, userInfo.Password))
             {
-                return TypedResults.BadRequest(default(BadRequestResponse));
+                var errors = new Dictionary<string, string[]>();
+                errors.Add("password", new string[] { "Invalid user or password" });
+                return TypedResults.BadRequest(BadRequestResponse.BuildFrom(errors));
             }
 
             return TypedResults.Ok(new TokenResponse(tokenService.GenerateToken(user.UserName!)));

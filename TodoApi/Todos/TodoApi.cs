@@ -59,7 +59,7 @@ internal static class TodoApi
         group.MapPut("/{id}", async Task<Results<Ok<TodoResponse>, NotFound, BadRequest<BadRequestResponse>>> (TodoDbContext db, int id, UpdateTodoRequest todo, CurrentUser owner) =>
         {
             var currentTodo = await db.Todos.FindAsync(id);
-            if (currentTodo != null && currentTodo.OwnerId == owner.Id || owner.IsAdmin)
+            if (currentTodo != null && currentTodo.OwnerId == owner.Id)
             {
                 var rowsAffected = await db.Todos.Where(t => t.Id == id && t.OwnerId == owner.Id)
                                              .ExecuteUpdateAsync(updates =>

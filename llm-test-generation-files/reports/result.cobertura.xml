@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<coverage line-rate="0.314" branch-rate="0.7585999999999999" version="1.9" timestamp="1728432311" lines-covered="493" lines-valid="1570" branches-covered="44" branches-valid="58">
+<coverage line-rate="0.3148" branch-rate="0.7777" version="1.9" timestamp="1728436855" lines-covered="494" lines-valid="1569" branches-covered="42" branches-valid="54">
   <sources>
     <source>C:\GIT\TodoApi\TodoApi\</source>
   </sources>
   <packages>
-    <package name="TodoApi" line-rate="0.314" branch-rate="0.7585999999999999" complexity="118">
+    <package name="TodoApi" line-rate="0.3148" branch-rate="0.7777" complexity="114">
       <classes>
         <class name="Program" filename="Program.cs" line-rate="0.826" branch-rate="0.75" complexity="4">
           <methods>
@@ -250,112 +250,100 @@
             <line number="29" hits="5" branch="False" />
           </lines>
         </class>
-        <class name="TodoApi.TokenService" filename="Authentication\TokenService.cs" line-rate="0.9142" branch-rate="0.5" complexity="6">
+        <class name="TodoApi.TokenService" filename="Authentication\TokenService.cs" line-rate="1" branch-rate="0.5" complexity="5">
           <methods>
-            <method name="GenerateToken" signature="(System.String,System.Boolean)" line-rate="0.8571" branch-rate="0.5" complexity="2">
+            <method name="GenerateToken" signature="(System.String,System.Boolean)" line-rate="1" branch-rate="1" complexity="1">
               <lines>
-                <line number="56" hits="16" branch="False" />
                 <line number="57" hits="16" branch="False" />
-                <line number="59" hits="16" branch="False" />
-                <line number="62" hits="16" branch="False" />
-                <line number="64" hits="16" branch="False" />
-                <line number="66" hits="16" branch="True" condition-coverage="50% (1/2)">
-                  <conditions>
-                    <condition number="98" type="jump" coverage="50%" />
-                  </conditions>
-                </line>
-                <line number="67" hits="0" branch="False" />
-                <line number="68" hits="0" branch="False" />
-                <line number="69" hits="0" branch="False" />
+                <line number="58" hits="16" branch="False" />
+                <line number="60" hits="16" branch="False" />
+                <line number="63" hits="16" branch="False" />
+                <line number="65" hits="16" branch="False" />
+                <line number="67" hits="16" branch="False" />
+                <line number="69" hits="16" branch="False" />
                 <line number="71" hits="16" branch="False" />
+                <line number="72" hits="16" branch="False" />
                 <line number="73" hits="16" branch="False" />
+                <line number="74" hits="16" branch="False" />
                 <line number="75" hits="16" branch="False" />
                 <line number="76" hits="16" branch="False" />
                 <line number="77" hits="16" branch="False" />
                 <line number="78" hits="16" branch="False" />
-                <line number="79" hits="16" branch="False" />
                 <line number="80" hits="16" branch="False" />
                 <line number="81" hits="16" branch="False" />
-                <line number="82" hits="16" branch="False" />
-                <line number="84" hits="16" branch="False" />
-                <line number="85" hits="16" branch="False" />
               </lines>
             </method>
             <method name=".ctor" signature="(Microsoft.AspNetCore.Authentication.IAuthenticationConfigurationProvider)" line-rate="1" branch-rate="0.5" complexity="4">
               <lines>
                 <line number="23" hits="10" branch="False" />
                 <line number="24" hits="10" branch="False" />
-                <line number="26" hits="10" branch="False" />
-                <line number="39" hits="10" branch="False" />
+                <line number="25" hits="10" branch="False" />
+                <line number="38" hits="10" branch="False" />
+                <line number="40" hits="10" branch="False" />
                 <line number="41" hits="10" branch="True" condition-coverage="50% (1/2)">
                   <conditions>
-                    <condition number="45" type="jump" coverage="50%" />
+                    <condition number="47" type="jump" coverage="50%" />
                   </conditions>
                 </line>
-                <line number="42" hits="10" branch="True" condition-coverage="50% (1/2)">
+                <line number="42" hits="10" branch="False" />
+                <line number="43" hits="10" branch="True" condition-coverage="50% (1/2)">
                   <conditions>
-                    <condition number="76" type="jump" coverage="50%" />
+                    <condition number="74" type="jump" coverage="50%" />
                   </conditions>
                 </line>
-                <line number="44" hits="10" branch="False" />
-                <line number="46" hits="10" branch="False" />
+                <line number="45" hits="10" branch="False" />
                 <line number="47" hits="10" branch="False" />
-                <line number="49" hits="10" branch="False" />
-                <line number="50" hits="40" branch="False" />
+                <line number="48" hits="10" branch="False" />
+                <line number="50" hits="10" branch="False" />
                 <line number="51" hits="40" branch="False" />
-                <line number="52" hits="10" branch="False" />
+                <line number="52" hits="40" branch="False" />
                 <line number="53" hits="10" branch="False" />
+                <line number="54" hits="10" branch="False" />
               </lines>
             </method>
           </methods>
           <lines>
-            <line number="56" hits="16" branch="False" />
             <line number="57" hits="16" branch="False" />
-            <line number="59" hits="16" branch="False" />
-            <line number="62" hits="16" branch="False" />
-            <line number="64" hits="16" branch="False" />
-            <line number="66" hits="16" branch="True" condition-coverage="50% (1/2)">
-              <conditions>
-                <condition number="98" type="jump" coverage="50%" />
-              </conditions>
-            </line>
-            <line number="67" hits="0" branch="False" />
-            <line number="68" hits="0" branch="False" />
-            <line number="69" hits="0" branch="False" />
+            <line number="58" hits="16" branch="False" />
+            <line number="60" hits="16" branch="False" />
+            <line number="63" hits="16" branch="False" />
+            <line number="65" hits="16" branch="False" />
+            <line number="67" hits="16" branch="False" />
+            <line number="69" hits="16" branch="False" />
             <line number="71" hits="16" branch="False" />
+            <line number="72" hits="16" branch="False" />
             <line number="73" hits="16" branch="False" />
+            <line number="74" hits="16" branch="False" />
             <line number="75" hits="16" branch="False" />
             <line number="76" hits="16" branch="False" />
             <line number="77" hits="16" branch="False" />
             <line number="78" hits="16" branch="False" />
-            <line number="79" hits="16" branch="False" />
             <line number="80" hits="16" branch="False" />
             <line number="81" hits="16" branch="False" />
-            <line number="82" hits="16" branch="False" />
-            <line number="84" hits="16" branch="False" />
-            <line number="85" hits="16" branch="False" />
             <line number="23" hits="10" branch="False" />
             <line number="24" hits="10" branch="False" />
-            <line number="26" hits="10" branch="False" />
-            <line number="39" hits="10" branch="False" />
+            <line number="25" hits="10" branch="False" />
+            <line number="38" hits="10" branch="False" />
+            <line number="40" hits="10" branch="False" />
             <line number="41" hits="10" branch="True" condition-coverage="50% (1/2)">
               <conditions>
-                <condition number="45" type="jump" coverage="50%" />
+                <condition number="47" type="jump" coverage="50%" />
               </conditions>
             </line>
-            <line number="42" hits="10" branch="True" condition-coverage="50% (1/2)">
+            <line number="42" hits="10" branch="False" />
+            <line number="43" hits="10" branch="True" condition-coverage="50% (1/2)">
               <conditions>
-                <condition number="76" type="jump" coverage="50%" />
+                <condition number="74" type="jump" coverage="50%" />
               </conditions>
             </line>
-            <line number="44" hits="10" branch="False" />
-            <line number="46" hits="10" branch="False" />
+            <line number="45" hits="10" branch="False" />
             <line number="47" hits="10" branch="False" />
-            <line number="49" hits="10" branch="False" />
-            <line number="50" hits="40" branch="False" />
+            <line number="48" hits="10" branch="False" />
+            <line number="50" hits="10" branch="False" />
             <line number="51" hits="40" branch="False" />
-            <line number="52" hits="10" branch="False" />
+            <line number="52" hits="40" branch="False" />
             <line number="53" hits="10" branch="False" />
+            <line number="54" hits="10" branch="False" />
           </lines>
         </class>
         <class name="TodoApi.AuthorizationHandlerExtensions" filename="Authorization\CheckCurrentUserAuthHandler.cs" line-rate="1" branch-rate="1" complexity="1">
@@ -414,34 +402,28 @@
             <line number="21" hits="32" branch="False" />
           </lines>
         </class>
-        <class name="TodoApi.CurrentUser" filename="Authorization\CurrentUser.cs" line-rate="0.75" branch-rate="1" complexity="4">
+        <class name="TodoApi.CurrentUser" filename="Authorization\CurrentUser.cs" line-rate="1" branch-rate="1" complexity="3">
           <methods>
             <method name="get_User" signature="()" line-rate="1" branch-rate="1" complexity="1">
               <lines>
-                <line number="8" hits="32" branch="False" />
+                <line number="7" hits="32" branch="False" />
               </lines>
             </method>
             <method name="get_Principal" signature="()" line-rate="1" branch-rate="1" complexity="1">
               <lines>
-                <line number="9" hits="52" branch="False" />
+                <line number="8" hits="52" branch="False" />
               </lines>
             </method>
             <method name="get_Id" signature="()" line-rate="1" branch-rate="1" complexity="1">
               <lines>
-                <line number="11" hits="15" branch="False" />
-              </lines>
-            </method>
-            <method name="get_IsAdmin" signature="()" line-rate="0" branch-rate="1" complexity="1">
-              <lines>
-                <line number="12" hits="0" branch="False" />
+                <line number="10" hits="15" branch="False" />
               </lines>
             </method>
           </methods>
           <lines>
-            <line number="8" hits="32" branch="False" />
-            <line number="9" hits="52" branch="False" />
-            <line number="11" hits="15" branch="False" />
-            <line number="12" hits="0" branch="False" />
+            <line number="7" hits="32" branch="False" />
+            <line number="8" hits="52" branch="False" />
+            <line number="10" hits="15" branch="False" />
           </lines>
         </class>
         <class name="TodoApi.CurrentUserExtensions/ClaimsTransformation" filename="Authorization\CurrentUserExtensions.cs" line-rate="1" branch-rate="1" complexity="1">
@@ -469,35 +451,35 @@
             <method name="MoveNext" signature="()" line-rate="1" branch-rate="0.75" complexity="4">
               <lines>
                 <line number="21" hits="16" branch="False" />
-                <line number="24" hits="16" branch="False" />
-                <line number="26" hits="16" branch="True" condition-coverage="75% (3/4)">
+                <line number="22" hits="16" branch="False" />
+                <line number="24" hits="16" branch="True" condition-coverage="75% (3/4)">
                   <conditions>
                     <condition number="69" type="jump" coverage="50%" />
                     <condition number="90" type="jump" coverage="100%" />
                   </conditions>
                 </line>
+                <line number="25" hits="16" branch="False" />
+                <line number="26" hits="16" branch="False" />
                 <line number="27" hits="16" branch="False" />
+                <line number="29" hits="16" branch="False" />
                 <line number="30" hits="16" branch="False" />
-                <line number="31" hits="16" branch="False" />
-                <line number="33" hits="16" branch="False" />
-                <line number="34" hits="16" branch="False" />
               </lines>
             </method>
           </methods>
           <lines>
             <line number="21" hits="16" branch="False" />
-            <line number="24" hits="16" branch="False" />
-            <line number="26" hits="16" branch="True" condition-coverage="75% (3/4)">
+            <line number="22" hits="16" branch="False" />
+            <line number="24" hits="16" branch="True" condition-coverage="75% (3/4)">
               <conditions>
                 <condition number="69" type="jump" coverage="50%" />
                 <condition number="90" type="jump" coverage="100%" />
               </conditions>
             </line>
+            <line number="25" hits="16" branch="False" />
+            <line number="26" hits="16" branch="False" />
             <line number="27" hits="16" branch="False" />
+            <line number="29" hits="16" branch="False" />
             <line number="30" hits="16" branch="False" />
-            <line number="31" hits="16" branch="False" />
-            <line number="33" hits="16" branch="False" />
-            <line number="34" hits="16" branch="False" />
           </lines>
         </class>
         <class name="TodoApi.OpenTelemetryExtensions" filename="Extensions\OpenTelemetryExtensions.cs" line-rate="0.8" branch-rate="0.5" complexity="4">
@@ -1098,7 +1080,7 @@
           <methods />
           <lines />
         </class>
-        <class name="TodoApi.TodoApi/&lt;&gt;c/&lt;&lt;MapTodos&gt;b__0_4&gt;d" filename="Todos\TodoApi.cs" line-rate="1" branch-rate="0.5" complexity="6">
+        <class name="TodoApi.TodoApi/&lt;&gt;c/&lt;&lt;MapTodos&gt;b__0_4&gt;d" filename="Todos\TodoApi.cs" line-rate="1" branch-rate="0.5" complexity="4">
           <methods />
           <lines />
         </class>
@@ -1154,9 +1136,9 @@
             <line number="25" hits="32" branch="False" />
           </lines>
         </class>
-        <class name="TodoApi.UsersApi" filename="Users\UsersApi.cs" line-rate="0.8928" branch-rate="1" complexity="1">
+        <class name="TodoApi.UsersApi" filename="Users\UsersApi.cs" line-rate="0.8332999999999999" branch-rate="1" complexity="1">
           <methods>
-            <method name="MapUsers" signature="(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)" line-rate="0.8928" branch-rate="1" complexity="1">
+            <method name="MapUsers" signature="(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)" line-rate="0.8332999999999999" branch-rate="1" complexity="1">
               <lines>
                 <line number="12" hits="12" branch="False" />
                 <line number="13" hits="12" branch="False" />
@@ -1180,12 +1162,14 @@
                 <line number="35" hits="1" branch="False" />
                 <line number="36" hits="0" branch="False" />
                 <line number="37" hits="0" branch="False" />
-                <line number="38" hits="12" branch="False" />
-                <line number="39" hits="12" branch="False" />
-                <line number="40" hits="1" branch="False" />
-                <line number="41" hits="13" branch="False" />
-                <line number="43" hits="12" branch="False" />
-                <line number="44" hits="12" branch="False" />
+                <line number="38" hits="0" branch="False" />
+                <line number="39" hits="0" branch="False" />
+                <line number="40" hits="12" branch="False" />
+                <line number="41" hits="12" branch="False" />
+                <line number="42" hits="1" branch="False" />
+                <line number="43" hits="13" branch="False" />
+                <line number="45" hits="12" branch="False" />
+                <line number="46" hits="12" branch="False" />
               </lines>
             </method>
           </methods>
@@ -1212,12 +1196,14 @@
             <line number="35" hits="1" branch="False" />
             <line number="36" hits="0" branch="False" />
             <line number="37" hits="0" branch="False" />
-            <line number="38" hits="12" branch="False" />
-            <line number="39" hits="12" branch="False" />
-            <line number="40" hits="1" branch="False" />
-            <line number="41" hits="13" branch="False" />
-            <line number="43" hits="12" branch="False" />
-            <line number="44" hits="12" branch="False" />
+            <line number="38" hits="0" branch="False" />
+            <line number="39" hits="0" branch="False" />
+            <line number="40" hits="12" branch="False" />
+            <line number="41" hits="12" branch="False" />
+            <line number="42" hits="1" branch="False" />
+            <line number="43" hits="13" branch="False" />
+            <line number="45" hits="12" branch="False" />
+            <line number="46" hits="12" branch="False" />
           </lines>
         </class>
         <class name="TodoApi.UsersApi/&lt;&gt;c/&lt;&lt;MapUsers&gt;b__0_0&gt;d" filename="Users\UsersApi.cs" line-rate="1" branch-rate="0.5" complexity="2">

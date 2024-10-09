@@ -12,12 +12,12 @@ dotnet test /p:CollectCoverage=true /p:CoverletOutputFormat=\"opencover,cobertur
 
 # build and publish docker
 
+docker login # put credentials
 dotnet publish TodoApi\TodoApi.csproj --output TodoApi\bin\app
 docker build -t thiagobarradas/todoapi:latest .
-docker login # put credentials
-docker tag thiagobarradas/todoapi:latest thiagobarradas/todoapi:1.0.0
+docker tag thiagobarradas/todoapi:latest thiagobarradas/todoapi:1.0.4
 docker push thiagobarradas/todoapi:latest
-docker push thiagobarradas/todoapi:1.0.0
+docker push thiagobarradas/todoapi:1.0.4
 
 # running locally
 

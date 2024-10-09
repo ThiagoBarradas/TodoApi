@@ -364,10 +364,10 @@
         "type": "object",
         "properties": {
           "username": {
-            "maxLength": 20,
+            "maxLength": 128,
             "minLength": 1,
             "type": "string",
-            "description": "Username must be between 1 and 20 characters long, can only contain uppercase and lowercase letters (a-z, A-Z), numbers (0-9), and the following special characters: hyphen (-), period (.), underscore (_), at symbol (@), and plus sign (+) and must not exist in the database.",
+            "description": "Username must be between 1 and 128 characters long, can only contain uppercase and lowercase letters (a-z, A-Z), numbers (0-9), and the following special characters: hyphen (-), period (.), underscore (_), at symbol (@), and plus sign (+) and must not exist in the database.",
             "default": "my_username"
           },
           "password": {

@@ -12,9 +12,9 @@ public class CreateUserRequest
 {
     [Required]
     [MinLength(1)]
-    [MaxLength(20)]
+    [MaxLength(128)]
     [DefaultValue("my_username")]
-    [SwaggerSchema(Description = "Username must be between 1 and 20 characters long, can only contain uppercase and lowercase letters (a-z, A-Z), numbers (0-9), and the following special characters: hyphen (-), period (.), underscore (_), at symbol (@), and plus sign (+) and must not exist in the database.")]
+    [SwaggerSchema(Description = "Username must be between 1 and 128 characters long, can only contain uppercase and lowercase letters (a-z, A-Z), numbers (0-9), and the following special characters: hyphen (-), period (.), underscore (_), at symbol (@), and plus sign (+) and must not exist in the database.")]
     public string Username { get; set; } = default!;
 
     [Required]

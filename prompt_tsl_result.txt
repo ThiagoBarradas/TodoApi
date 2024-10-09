@@ -1,0 +1,179 @@
+```yaml
+# TSL for /todos
+- endpoint: /todos
+  method: GET
+  category: Authenticated User
+  conditions:
+    - validToken: true
+  testCases:
+    - description: "List todos successfully with valid token"
+      if:
+        - validToken is true
+      expect:
+        status: 200
+        responseSchema: array of TodoResponse
+
+- endpoint: /todos
+  method: POST
+  category: Create Todo
+  parameters:
+    - title: string
+  conditions:
+    - validToken: true
+    - titleLength: [1, 256]
+  testCases:
+    - description: "Create todo successfully with valid token and valid title"
+      if:
+        - validToken is true
+        - titleLength is 1 to 256
+      expect:
+        status: 201
+        responseSchema: TodoResponse
+
+    - description: "Create todo fails with invalid title"
+      if:
+        - titleLength not in 1 to 256
+      expect:
+        status: 400
+        responseSchema: BadRequestResponse
+
+- endpoint: /todos/{id}
+  method: GET
+  category: Retrieve Todo
+  parameters:
+    - id: integer
+  conditions:
+    - validToken: true
+    - doesTodoExist: [true, false]
+    - isOwner: [true, false]
+  testCases:
+    - description: "Get todo successfully if it exists and is owned by user"
+      if: 
+        - validToken is true
+        - doesTodoExist is true
+        - isOwner is true
+      expect:
+        status: 200
+        responseSchema: TodoResponse
+
+    - description: "Todo not found if it doesn't exist or user isn't owner"
+      if:
+        - doesTodoExist is false
+        - isOwner is false
+      expect:
+        status: 404
+
+- endpoint: /todos/{id}
+  method: PUT
+  category: Update Todo
+  parameters:
+    - id: integer
+    - title: string
+    - isComplete: boolean
+  conditions:
+    - validToken: true
+    - doesTodoExist: [true, false]
+    - isOwner: [true, false]
+    - titleLength: [1, 256]
+  testCases:
+    - description: "Update todo successfully with valid parameters"
+      if:
+        - validToken is true
+        - doesTodoExist is true
+        - isOwner is true
+        - titleLength is 1 to 256
+      expect:
+        status: 200
+        responseSchema: TodoResponse
+
+    - description: "Update todo fails with invalid parameters or no permission"
+      if:
+        - doesTodoExist is false or
+        - isOwner is false or
+        - titleLength not in 1 to 256
+      expect:
+        status: 404 or 400
+        responseSchema: BadRequestResponse if error is 400
+
+- endpoint: /todos/{id}
+  method: DELETE
+  category: Delete Todo
+  parameters:
+    - id: integer
+  conditions:
+    - validToken: true
+    - doesTodoExist: [true, false]
+    - isOwner: [true, false]
+  testCases:
+    - description: "Delete todo successfully if it exists and is owned by user"
+      if:
+        - validToken is true
+        - doesTodoExist is true
+        - isOwner is true
+      expect:
+        status: 200
+
+    - description: "Todo not found if it doesn't exist or user isn't owner"
+      if:
+        - doesTodoExist is false
+        - isOwner is false
+      expect:
+        status: 404
+
+# TSL for /users
+- endpoint: /users
+  method: POST
+  category: Create User
+  parameters:
+    - username: string
+    - password: string
+  conditions:
+    - usernameLength: [1, 20]
+    - passwordLength: [6, 32]
+    - isUniqueUser: [true, false]
+  testCases:
+    - description: "Create user successfully with valid username and password"
+      if:
+        - usernameLength is 1 to 20
+        - passwordLength is 6 to 32
+        - isUniqueUser is true
+      expect:
+        status: 200
+
+    - description: "Create user fails with invalid username or password or user exists"
+      if:
+        - usernameLength not in 1 to 20 or
+        - passwordLength not in 6 to 32 or
+        - isUniqueUser is false
+      expect:
+        status: 400
+        responseSchema: BadRequestResponse
+
+# TSL for /users/token
+- endpoint: /users/token
+  method: POST
+  category: Authenticate User
+  parameters:
+    - username: string
+    - password: string
+  conditions:
+    - usernameLength: [1, 20]
+    - passwordLength: [6, 32]
+    - validCredentials: [true, false]
+  testCases:
+    - description: "Authenticate successfully with valid credentials"
+      if:
+        - usernameLength is 1 to 20
+        - passwordLength is 6 to 32
+        - validCredentials is true
+      expect:
+        status: 200
+        responseSchema: TokenResponse
+
+    - description: "Authenticate fails with invalid credentials"
+      if:
+        - validCredentials is false
+      expect:
+        status: 400
+        responseSchema: BadRequestResponse
+```

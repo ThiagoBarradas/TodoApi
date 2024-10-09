@@ -1,0 +1,3240 @@
+
+Considere um projeto de software em .NET com a seguinte estrutura de arquivos:
+
+├── TodoApi
+│   ├── Filters
+│   │   └── ValidationFilter.cs
+│   ├── TodoDbContext.cs
+│   ├── Authorization
+│   │   ├── CurrentUserExtensions.cs
+│   │   ├── CurrentUser.cs
+│   │   └── CheckCurrentUserAuthHandler.cs
+│   ├── appsettings.json
+│   ├── Properties
+│   │   └── launchSettings.json
+│   ├── Users
+│   │   ├── UsersApi.cs
+│   │   ├── TokenResponse.cs
+│   │   └── UserRequest.cs
+│   ├── Extensions
+│   │   ├── RateLimitExtensions.cs
+│   │   ├── OpenTelemetryExtensions.cs
+│   │   └── DescribeSwaggerExtensions.cs
+│   ├── appsettings.Development.json
+│   ├── Authentication
+│   │   └── TokenService.cs
+│   ├── Todos
+│   │   ├── Todo.cs
+│   │   ├── TodoRequest.cs
+│   │   ├── TodoMappingExtensions.cs
+│   │   ├── TodoApi.cs
+│   │   └── TodoResponse.cs
+│   ├── GenericResponse
+│   │   └── BadRequestResponse.cs
+│   ├── Migrations
+│   │   ├── 20221123165051_RemoveIsAdmin.Designer.cs
+│   │   ├── 20221123071234_Initial.Designer.cs
+│   │   ├── TodoDbContextModelSnapshot.cs
+│   │   ├── 20221123071234_Initial.cs
+│   │   └── 20221123165051_RemoveIsAdmin.cs
+│   ├── TodoApi.csproj
+│   └── Program.cs
+├── TodoApi.sln
+├── openapi.json
+├── Requests
+│   └── todo.http
+├── Directory.Packages.props
+└── Directory.Build.props 
+
+Após a linha ###ARQUIVOS### será informado o diretorio/nome_do_arquivo e o conteúdo de vários arquivos no seguinte formato:
+
+diretorio/nome_do_arquivo
+```
+//BEGINFILEHERE##
+
+conteúdo do arquivo
+
+//ENDFILEHERE##
+```
+
+###ARQUIVOS###
+
+TodoApi/Filters/ValidationFilter.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using System.Reflection;
+using Microsoft.AspNetCore.Http.Metadata;
+using MiniValidation;
+
+namespace TodoApi;
+
+public static class ValidationFilterExtensions
+{
+    public static TBuilder WithParameterValidation<TBuilder>(this TBuilder builder, params Type[] typesToValidate) where TBuilder : IEndpointConventionBuilder
+    {
+        builder.Add(eb =>
+        {
+            var methodInfo = eb.Metadata.OfType<MethodInfo>().FirstOrDefault();
+
+            if (methodInfo is null)
+            {
+                return;
+            }
+
+            // Track the indices of validatable parameters
+            List<int>? parameterIndexesToValidate = null;
+            foreach (var p in methodInfo.GetParameters())
+            {
+                if (typesToValidate.Contains(p.ParameterType))
+                {
+                    parameterIndexesToValidate ??= new();
+                    parameterIndexesToValidate.Add(p.Position);
+                }
+            }
+
+            if (parameterIndexesToValidate is null)
+            {
+                // Nothing to validate so don't add the filter to this endpoint
+                return;
+            }
+
+            // We can respond with problem details if there's a validation error
+            eb.Metadata.Add(new ProducesResponseTypeMetadata(typeof(HttpValidationProblemDetails), 400, "application/problem+json"));
+
+            eb.FilterFactories.Add((context, next) =>
+            {
+                return efic =>
+                {
+                    foreach (var index in parameterIndexesToValidate)
+                    {
+                        if (efic.Arguments[index] is { } arg && !MiniValidator.TryValidate(arg, out var errors))
+                        {
+                            return new ValueTask<object?>(Results.ValidationProblem(errors));
+                        }
+                    }
+
+                    return next(efic);
+                };
+            });
+        });
+
+        return builder;
+    }
+
+    // Equivalent to the .Produces call to add metadata to endpoints
+    private sealed class ProducesResponseTypeMetadata : IProducesResponseTypeMetadata
+    {
+        public ProducesResponseTypeMetadata(Type type, int statusCode, string contentType)
+        {
+            Type = type;
+            StatusCode = statusCode;
+            ContentTypes = new[] { contentType };
+        }
+
+        public Type Type { get; }
+        public int StatusCode { get; }
+        public IEnumerable<string> ContentTypes { get; }
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/TodoDbContext.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
+
+namespace TodoApi;
+
+public class TodoDbContext : IdentityDbContext<TodoUser>
+{
+    public TodoDbContext(DbContextOptions<TodoDbContext> options) : base(options) { }
+
+    public DbSet<Todo> Todos => Set<Todo>();
+
+    protected override void OnModelCreating(ModelBuilder builder)
+    {
+        builder.Entity<Todo>()
+               .HasOne<TodoUser>()
+               .WithMany()
+               .HasForeignKey(t => t.OwnerId)
+               .HasPrincipalKey(u => u.UserName);
+
+        base.OnModelCreating(builder);
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/Authorization/CurrentUserExtensions.cs
+```
+//BEGINFILEHERE##
+
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Identity;
+
+namespace TodoApi;
+
+public static class CurrentUserExtensions
+{
+    public sealed class ClaimsTransformation : IClaimsTransformation
+    {
+        private readonly CurrentUser _currentUser;
+        private readonly UserManager<TodoUser> _userManager;
+
+        public ClaimsTransformation(CurrentUser currentUser, UserManager<TodoUser> userManager)
+        {
+            _currentUser = currentUser;
+            _userManager = userManager;
+        }
+
+        public async Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
+        {
+            _currentUser.Principal = principal;
+
+            if (principal.FindFirstValue(ClaimTypes.NameIdentifier) is { Length: > 0 } name)
+            {
+                _currentUser.User = await _userManager.FindByNameAsync(name);
+            }
+
+            return principal;
+        }
+    }
+}
+
+//ENDFILEHERE##
+```
+
+TodoApi/Authorization/CurrentUser.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using System.Security.Claims;
+
+namespace TodoApi;
+
+public class CurrentUser
+{
+    public TodoUser? User { get; set; }
+    public ClaimsPrincipal Principal { get; set; } = default!;
+
+    public string Id => Principal.FindFirstValue(ClaimTypes.NameIdentifier)!;
+}
+
+//ENDFILEHERE##
+```
+
+TodoApi/Authorization/CheckCurrentUserAuthHandler.cs
+```
+//BEGINFILEHERE##
+
+using Microsoft.AspNetCore.Authorization;
+
+namespace TodoApi;
+
+public static class AuthorizationHandlerExtensions
+{
+    // Adds the current user requirement that will activate our authorization handler
+    public static AuthorizationPolicyBuilder RequireCurrentUser(this AuthorizationPolicyBuilder builder)
+    {
+        return builder.RequireAuthenticatedUser()
+                      .AddRequirements(new CheckCurrentUserRequirement());
+    }
+
+    public class CheckCurrentUserRequirement : IAuthorizationRequirement { }
+
+    // This authorization handler verifies that the user exists even if there's
+    // a valid token
+    public class CheckCurrentUserAuthHandler : AuthorizationHandler<CheckCurrentUserRequirement>
+    {
+        private readonly CurrentUser _currentUser;
+        public CheckCurrentUserAuthHandler(CurrentUser currentUser) => _currentUser = currentUser;
+
+        protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, CheckCurrentUserRequirement requirement)
+        {
+            // TODO: Check user if the user is locked out as well
+            if (_currentUser.User is not null)
+            {
+                context.Succeed(requirement);
+            }
+
+            return Task.CompletedTask;
+        }
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/appsettings.json
+```
+//BEGINFILEHERE##
+
+{
+  "Title": "PRD",
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*",
+  "Authentication": {
+    "Schemes": {
+      "Bearer": {
+        "ValidAudiences": [
+          "http://localhost:47743",
+          "https://localhost:44371",
+          "http://localhost:5000",
+          "https://localhost:5001"
+        ],
+        "ValidIssuer": "dotnet-user-jwts",
+        "SigningKeys": [
+          {
+            "Issuer": "dotnet-user-jwts",
+            "Value": "DCmbsZQIbC0VT3xssf+mkrAhpnVPw/x38jYliIg7Oas="
+          }
+        ]
+      }
+    }
+  }
+}
+
+//ENDFILEHERE##
+```
+
+TodoApi/Properties/launchSettings.json
+```
+//BEGINFILEHERE##
+
+{
+  "iisSettings": {
+    "windowsAuthentication": false,
+    "anonymousAuthentication": true,
+    "iisExpress": {
+      "applicationUrl": "http://localhost:47743",
+      "sslPort": 44371
+    }
+  },
+  "profiles": {
+    "http": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "hotReloadProfile": "aspnetcore",
+      "applicationUrl": "http://localhost:5000",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    "https": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "hotReloadProfile": "aspnetcore",
+      "applicationUrl": "https://localhost:5001;http://localhost:5000",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}
+
+//ENDFILEHERE##
+```
+
+TodoApi/Users/UsersApi.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Identity;
+using TodoApi.Extensions;
+using TodoApi.GenericResponse;
+using static TodoApi.Extensions.DescribeSwaggerExtensions;
+
+namespace TodoApi;
+
+public static class UsersApi
+{
+    public static RouteGroupBuilder MapUsers(this IEndpointRouteBuilder routes)
+    {
+        var group = routes.MapGroup("/users");
+
+        group.WithTags("Users");
+
+        group.WithParameterValidation(typeof(CreateUserRequest));
+
+        group.MapPost("/", async Task<Results<Ok, BadRequest<BadRequestResponse>>> (CreateUserRequest newUser, UserManager<TodoUser> userManager) =>
+        {
+            var result = await userManager.CreateAsync(new() { UserName = newUser.Username }, newUser.Password);
+
+            if (result.Succeeded)
+            {
+                return TypedResults.Ok();
+            }
+
+            return TypedResults.BadRequest(BadRequestResponse.BuildFrom(result.Errors.ToDictionary(e => e.Code, e => new[] { e.Description })));
+        }).DescribeCreateUser();
+
+        group.MapPost("/token", async Task<Results<BadRequest<BadRequestResponse>, Ok<TokenResponse>>> (CreateUserRequest userInfo, UserManager<TodoUser> userManager, ITokenService tokenService) =>
+        {
+            var user = await userManager.FindByNameAsync(userInfo.Username);
+
+            if (user is null || !await userManager.CheckPasswordAsync(user, userInfo.Password))
+            {
+                var errors = new Dictionary<string, string[]>();
+                errors.Add("password", new string[] { "Invalid user or password" });
+                return TypedResults.BadRequest(BadRequestResponse.BuildFrom(errors));
+            }
+
+            return TypedResults.Ok(new TokenResponse(tokenService.GenerateToken(user.UserName!)));
+        }).DescribeToken();
+
+        return group;
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/Users/TokenResponse.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using Swashbuckle.AspNetCore.Annotations;
+using System.ComponentModel;
+
+namespace TodoApi;
+
+public class TokenResponse
+{
+    public TokenResponse() { }
+
+    public TokenResponse(string token) 
+    { 
+        Token = token;
+    }
+
+    [DefaultValue("eyJhbGc...")]
+    [SwaggerSchema(Description = "Valid token to authenticate todos endpoints with header `Authorization: Bearer eyJhbGc...`")]
+    public string Token { get; set; }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/Users/UserRequest.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using System.Collections.Generic;
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Identity;
+using Swashbuckle.AspNetCore.Annotations;
+
+namespace TodoApi;
+
+public class TodoUser : IdentityUser { }
+
+public class CreateUserRequest
+{
+    [Required]
+    [MinLength(1)]
+    [MaxLength(20)]
+    [DefaultValue("my_username")]
+    [SwaggerSchema(Description = "Username must be between 1 and 20 characters long, can only contain uppercase and lowercase letters (a-z, A-Z), numbers (0-9), and the following special characters: hyphen (-), period (.), underscore (_), at symbol (@), and plus sign (+) and must not exist in the database.")]
+    public string Username { get; set; } = default!;
+
+    [Required]
+    [MinLength(6)]
+    [MaxLength(32)]
+    [DefaultValue("P@ssw0rd")]
+    [SwaggerSchema(Description = "Password must be between 6 and 32 characters long, contain at least one uppercase letter, one lowercase letter, one digit, and one non-alphanumeric character.")]
+    public string Password { get; set; } = default!;
+}
+
+//ENDFILEHERE##
+```
+
+TodoApi/Extensions/RateLimitExtensions.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using System.Security.Claims;
+using System.Threading.RateLimiting;
+
+namespace TodoApi;
+
+public static class RateLimitExtensions
+{
+    private static readonly string Policy = "PerUserRatelimit";
+
+    public static IServiceCollection AddRateLimiting(this IServiceCollection services)
+    {
+        return services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+            options.AddPolicy(Policy, context =>
+            {
+                // We always have a user name
+                var username = context.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+
+                return RateLimitPartition.GetTokenBucketLimiter(username, key =>
+                {
+                    return new()
+                    {
+                        ReplenishmentPeriod = TimeSpan.FromSeconds(10),
+                        AutoReplenishment = true,
+                        TokenLimit = 100,
+                        TokensPerPeriod = 100,
+                        QueueLimit = 100,
+                    };
+                });
+            });
+        });
+    }
+
+    public static IEndpointConventionBuilder RequirePerUserRateLimit(this IEndpointConventionBuilder builder)
+    {
+        return builder.RequireRateLimiting(Policy);
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/Extensions/OpenTelemetryExtensions.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using OpenTelemetry;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+
+namespace TodoApi;
+
+public static class OpenTelemetryExtensions
+{
+
+    /// <summary>
+    /// Configures logging, distributed tracing, and metrics
+    /// <list type="bullet">
+    /// <item><term>Distributed tracing</term> uses the OTLP Exporter, which can be viewed with Jaeger</item>
+    /// <item><term>Metrics</term> uses the Prometheus Exporter</item>
+    /// <item><term>Logging</term> can use the OTLP Exporter, but due to limited vendor support it is not enabled by default</item>
+    /// </list>
+    /// </summary>
+    /// <param name="builder"></param>
+    /// <returns></returns>
+    public static WebApplicationBuilder AddOpenTelemetry(this WebApplicationBuilder builder)
+    {
+        var resourceBuilder = ResourceBuilder.CreateDefault().AddService(builder.Environment.ApplicationName);
+        var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+
+        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+        {
+            builder.Logging.AddOpenTelemetry(logging =>
+            {
+                logging.SetResourceBuilder(resourceBuilder)
+                       .AddOtlpExporter();
+            });
+        }
+
+        builder.Services.AddOpenTelemetry()
+            .WithMetrics(metrics =>
+            {
+                metrics.SetResourceBuilder(resourceBuilder)
+                       .AddPrometheusExporter()
+                       .AddAspNetCoreInstrumentation()
+                       .AddRuntimeInstrumentation()
+                       .AddHttpClientInstrumentation()
+                       .AddEventCountersInstrumentation(c =>
+                       {
+                           // https://learn.microsoft.com/en-us/dotnet/core/diagnostics/available-counters
+                           c.AddEventSources(
+                               "Microsoft.AspNetCore.Hosting",
+                               "Microsoft-AspNetCore-Server-Kestrel",
+                               "System.Net.Http",
+                               "System.Net.Sockets",
+                               "System.Net.NameResolution",
+                               "System.Net.Security");
+                       });
+            })
+            .WithTracing(tracing =>
+            {
+                // We need to use AlwaysSampler to record spans
+                // from Todo.Web.Server, because there it no OpenTelemetry
+                // instrumentation
+                tracing.SetResourceBuilder(resourceBuilder)
+                       .SetSampler(new AlwaysOnSampler())
+                       .AddAspNetCoreInstrumentation()
+                       .AddHttpClientInstrumentation()
+                       .AddEntityFrameworkCoreInstrumentation();
+
+                if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+                {
+                    tracing.AddOtlpExporter();
+                }
+            })
+            .StartWithHost();
+
+        return builder;
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/Extensions/DescribeSwaggerExtensions.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.OpenApi.Models;
+using Swashbuckle.AspNetCore.SwaggerGen;
+using System.ComponentModel;
+
+namespace TodoApi.Extensions
+{
+    public class TagDescriptionsDocumentFilter : IDocumentFilter
+    {
+        public void Apply(OpenApiDocument swaggerDoc, DocumentFilterContext context)
+        {
+            swaggerDoc.Tags = new List<OpenApiTag>
+            {
+                new OpenApiTag { Name = "Users", Description = "Users management operations" },
+                new OpenApiTag { Name = "Todos", Description = "Todo list management operations" },
+            };
+        }
+    }
+
+    public static class DescribeSwaggerExtensions
+    {
+
+
+        public static SwaggerGenOptions DescribeApi(this SwaggerGenOptions options)
+        {
+            options.SwaggerDoc("v1",
+                new OpenApiInfo
+                {
+                    Title = "Simple Todo API",
+                    Description = "API to manage a simple Todo List with user auth control.",
+                    Version = "v1",
+                    Contact = new OpenApiContact()
+                    {
+                        Name = "David Fowler",
+                        Url = new Uri("https://github.com/davidfowl"),
+                    },
+                    License = new OpenApiLicense()
+                    {
+                        Name = "MIT",
+                        Url = new Uri("http://opensource.org/licenses/MIT"),
+                    }
+                });
+            options.DocumentFilter<TagDescriptionsDocumentFilter>();
+            options.InferSecuritySchemes();
+            options.SupportNonNullableReferenceTypes();
+            options.EnableAnnotations();
+
+            return options;
+        }
+
+        public static IEndpointConventionBuilder DescribeApiSecurityRequirement(this IEndpointConventionBuilder builder)
+        {
+            var scheme = new OpenApiSecurityScheme()
+            {
+                Type = SecuritySchemeType.Http,
+                Name = JwtBearerDefaults.AuthenticationScheme,
+                Scheme = JwtBearerDefaults.AuthenticationScheme,
+                Reference = new()
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = JwtBearerDefaults.AuthenticationScheme
+                }
+            };
+
+            return builder.WithOpenApi(operation => new(operation)
+            {
+                Security =
+            {
+                new()
+                {
+                    [scheme] = new List<string>()
+                }
+            }
+            });
+        }
+
+        public static RouteHandlerBuilder DescribeToken(this RouteHandlerBuilder builder)
+        {
+            builder.WithOpenApi(o =>
+             {
+                 o.Summary = "Authenticate user";
+                 o.Description = "Generate a valid token to authenticate Todos endpoints by username and password.";
+                 o.Responses["200"].Description = "Token generated successfully";
+                 o.Responses["400"].Description = "Invalid credentials";
+                 return o;
+             });
+
+            return builder;
+        }
+
+        public static RouteHandlerBuilder DescribeCreateUser(this RouteHandlerBuilder builder)
+        {
+            builder.WithOpenApi(o =>
+            {
+                o.Summary = "Create an user";
+                o.Description = "This endpoint creates new user with an username and password.";
+                o.Responses["200"].Description = "User created successfully";
+                o.Responses["400"].Description = "Invalid fields or user already exists";
+                return o;
+            });
+
+            return builder;
+        }
+
+        public static RouteHandlerBuilder DescribeCreateTodo(this RouteHandlerBuilder builder)
+        {
+            builder.WithOpenApi(o =>
+            {
+                o.Summary = "Create a todo";
+                o.Description = "This endpoint creates new todo with a simple title (description) always incomplete.";
+                o.Responses["201"].Description = "Todo created successfully";
+                o.Responses["400"].Description = "Invalid title";
+                return o;
+            });
+
+            return builder;
+        }
+
+        public static RouteHandlerBuilder DescribeUpdateTodo(this RouteHandlerBuilder builder)
+        {
+            builder.WithOpenApi(o =>
+            {
+                o.Summary = "Update a todo";
+                o.Description = "This endpoint updates an existing todo with a simple title (description) and its status (isComplete). It can only be done by the user who created the todo and can also be used to mark or unmark a todo as complete.";
+                o.Parameters[0].Description = "Id of an existing todo created by the user who owns the authentication token.";
+                o.Parameters[0].AllowEmptyValue = false;
+                o.Responses["200"].Description = "Todo updated successfully";
+                o.Responses["400"].Description = "Invalid title or missing isComplete";
+                o.Responses["404"].Description = "Todo does not exists or user is not the owner";
+                return o;
+            });
+
+            return builder;
+        }
+
+        public static RouteHandlerBuilder DescribeDeleteTodo(this RouteHandlerBuilder builder)
+        {
+            builder.WithOpenApi(o =>
+            {
+                o.Summary = "Delete a todo";
+                o.Description = "This endpoint deletes an existing todo. It can only be done by the user who created the todo.";
+                o.Parameters[0].Description = "Id of an existing todo created by the user who owns the authentication token.";
+                o.Parameters[0].AllowEmptyValue = false;
+                o.Responses["200"].Description = "Todo deleted successfully";
+                o.Responses["404"].Description = "Todo does not exists or user is not the owner";
+                return o;
+            });
+
+            return builder;
+        }
+
+        public static RouteHandlerBuilder DescribeListTodos(this RouteHandlerBuilder builder)
+        {
+            builder.WithOpenApi(o =>
+            {
+                o.Summary = "List all todos";
+                o.Description = "This endpoint list all existing todos that the user has created. If current user has no todos, an empty array will be returned.";
+                o.Responses["200"].Description = "Todos listed successfully";
+                return o;
+            });
+
+            return builder;
+        }
+
+        public static RouteHandlerBuilder DescribeGetTodo(this RouteHandlerBuilder builder)
+        {
+            builder.WithOpenApi(o =>
+            {
+                o.Summary = "Get a todo";
+                o.Description = "This endpoint consult an existing todo. It can only be done by the user who created the todo.";
+                o.Parameters[0].Description = "Id of an existing todo created by the user who owns the authentication token.";
+                o.Parameters[0].AllowEmptyValue = false;
+                o.Responses["200"].Description = "Todo consulted successfully";
+                o.Responses["404"].Description = "Todo does not exists or user is not the owner";
+                return o;
+            });
+
+            return builder;
+        }
+
+        public class DictionaryDefaultAttribute : DefaultValueAttribute
+        {
+            public DictionaryDefaultAttribute(string key, string[] value)
+                : base(new Dictionary<string, string[]>() { { key, value } })
+            {
+            }
+        }
+    }
+}
+
+//ENDFILEHERE##
+```
+
+TodoApi/appsettings.Development.json
+```
+//BEGINFILEHERE##
+
+{
+  "Title": "DEV",
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*",
+  "Authentication": {
+    "Schemes": {
+      "Bearer": {
+        "ValidAudiences": [
+          "http://localhost:47743",
+          "https://localhost:44371",
+          "http://localhost:5000",
+          "https://localhost:5001"
+        ],
+        "ValidIssuer": "dotnet-user-jwts",
+        "SigningKeys": [
+          {
+            "Issuer": "dotnet-user-jwts",
+            "Value": "DCmbsZQIbC0VT3xssf+mkrAhpnVPw/x38jYliIg7Oas="
+          }
+        ]
+      }
+    }
+  }
+}
+   
+
+//ENDFILEHERE##
+```
+
+TodoApi/Authentication/TokenService.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using System.Data;
+using System.Globalization;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+
+namespace TodoApi;
+
+public interface ITokenService
+{
+    // Generate a JWT token for the specified user name and admin role
+    string GenerateToken(string username, bool isAdmin = false);
+}
+
+public sealed class TokenService : ITokenService
+{
+    private readonly string _issuer;
+    private readonly SigningCredentials _jwtSigningCredentials;
+    private readonly Claim[] _audiences;
+
+    public TokenService(IAuthenticationConfigurationProvider authenticationConfigurationProvider)
+    {
+        var bearerSection = authenticationConfigurationProvider.GetSchemeConfiguration(JwtBearerDefaults.AuthenticationScheme);
+
+        // An example of what the expected schema looks like
+        // "Authentication": {
+        //     "Schemes": {
+        //       "Bearer": {
+        //         "ValidAudiences": [ ],
+        //         "ValidIssuer": "",
+        //         "SigningKeys": [ { "Issuer": .., "Value": base64Key, "Length": 32 } ]
+        //       }
+        //     }
+        //   }
+
+        var section = bearerSection.GetSection("SigningKeys:0");
+
+        var validIssuer = bearerSection["ValidIssuer"];
+        _issuer = validIssuer ?? "dotnet-user-jwts";
+        var value = section["Value"];
+        var signingKeyBase64 = value ?? "DCmbsZQIbC0VT3xssf+mkrAhpnVPw/x38jYliIg7Oas=";
+
+        var signingKeyBytes = Convert.FromBase64String(signingKeyBase64);
+
+        _jwtSigningCredentials = new SigningCredentials(new SymmetricSecurityKey(signingKeyBytes),
+                SecurityAlgorithms.HmacSha256Signature);
+
+        _audiences = bearerSection.GetSection("ValidAudiences").GetChildren()
+                    .Where(s => !string.IsNullOrEmpty(s.Value))
+                    .Select(s => new Claim(JwtRegisteredClaimNames.Aud, s.Value!))
+                    .ToArray();
+    }
+
+    public string GenerateToken(string username, bool isAdmin = false)
+    {
+        var identity = new ClaimsIdentity(JwtBearerDefaults.AuthenticationScheme);
+
+        identity.AddClaim(new Claim(JwtRegisteredClaimNames.Sub, username));
+
+        // REVIEW: Check that this logic is OK for jti claims
+        var id = Guid.NewGuid().ToString().GetHashCode().ToString("x", CultureInfo.InvariantCulture);
+
+        identity.AddClaim(new Claim(JwtRegisteredClaimNames.Jti, id));
+
+        identity.AddClaims(_audiences);
+
+        var handler = new JwtSecurityTokenHandler();
+
+        var jwtToken = handler.CreateJwtSecurityToken(
+            _issuer,
+            audience: null,
+            identity,
+            notBefore: DateTime.UtcNow,
+            expires: DateTime.UtcNow.AddMinutes(30),
+            issuedAt: DateTime.UtcNow,
+            _jwtSigningCredentials);
+
+        return handler.WriteToken(jwtToken);
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/Todos/Todo.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using System.ComponentModel.DataAnnotations;
+using TodoApi.Todos;
+
+public class Todo
+{
+    public int Id { get; set; }
+    [Required]
+    public string Title { get; set; } = default!;
+    public bool IsComplete { get; set; }
+    [Required]
+    public string OwnerId { get; set; } = default!;
+}
+
+//ENDFILEHERE##
+```
+
+TodoApi/Todos/TodoRequest.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using Swashbuckle.AspNetCore.Annotations;
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using TodoApi.Todos;
+
+public class CreateTodoRequest
+{
+    [Required]
+    [MinLength(1)]
+    [MaxLength(256)]
+    [DefaultValue("Something todo in the future")]
+    [SwaggerSchema(Description = "Title is the description from todo and must be between 1 and 256 characters long.")]
+
+    public string Title { get; set; } = default!;
+}
+
+public class UpdateTodoRequest
+{
+    [Required]
+    [MinLength(1)]
+    [MaxLength(256)]
+    [DefaultValue("Something todo in the future")]
+    [SwaggerSchema(Description = "Title is the description from todo and must be between 1 and 256 characters long.")]
+    public string Title { get; set; } = default!;
+
+    [Required]
+    [DefaultValue(false)]
+    [SwaggerSchema(Description = "IsComplete is a boolean flag indicating that a todo has been completed. It can be marked again as incomplete.")]
+    public bool? IsComplete { get; set; } = default!;
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/Todos/TodoMappingExtensions.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using System.ComponentModel.DataAnnotations;
+using TodoApi.Todos;
+
+public static class TodoMappingExtensions
+{
+    public static TodoResponse AsTodoItemResponse(this Todo todo)
+    {
+        return new TodoResponse()
+        {
+            Id = todo.Id,
+            Title = todo.Title,
+            IsComplete = todo.IsComplete,
+        };
+    }
+
+    public static TodoResponse AsTodoItemResponse(this UpdateTodoRequest todo, int id)
+    {
+        return new TodoResponse()
+        {
+            Id = id,
+            Title = todo.Title,
+            IsComplete = todo.IsComplete.Value,
+        };
+    }
+
+    public static TodoResponse AsTodoItemResponse(this CreateTodoRequest todo, int id)
+    {
+        return new TodoResponse()
+        {
+            Id = id,
+            Title = todo.Title,
+            IsComplete = false
+        };
+    }
+}
+
+//ENDFILEHERE##
+```
+
+TodoApi/Todos/TodoApi.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.EntityFrameworkCore;
+using TodoApi.Extensions;
+using TodoApi.GenericResponse;
+using TodoApi.Todos;
+
+namespace TodoApi;
+
+internal static class TodoApi
+{
+    public static RouteGroupBuilder MapTodos(this IEndpointRouteBuilder routes)
+    {
+        var group = routes.MapGroup("/todos");
+
+        group.WithTags("Todos");
+
+        group.RequireAuthorization(pb => pb.RequireCurrentUser())
+             .DescribeApiSecurityRequirement();
+
+        group.RequirePerUserRateLimit();
+
+        group.WithParameterValidation(typeof(CreateTodoRequest), typeof(UpdateTodoRequest));
+
+        group.MapGet("/", async (TodoDbContext db, CurrentUser owner) =>
+        {
+            return await db.Todos.Where(todo => todo.OwnerId == owner.Id)
+            .Select(t => t.AsTodoItemResponse())
+            .AsNoTracking()
+            .ToListAsync();
+        })
+        .DescribeListTodos();
+
+        group.MapGet("/{id}", async Task<Results<Ok<TodoResponse>, NotFound>> (TodoDbContext db, int id, CurrentUser owner) =>
+        {
+            return await db.Todos.FindAsync(id) switch
+            {
+                Todo todo when todo != null && todo.OwnerId == owner.Id
+                              => TypedResults.Ok(todo.AsTodoItemResponse()),
+                            _ => TypedResults.NotFound()
+            };
+        })
+        .DescribeGetTodo();
+
+        group.MapPost("/", async Task<Results<Created<TodoResponse>, BadRequest<BadRequestResponse>>> (TodoDbContext db, CreateTodoRequest newTodo, CurrentUser owner) =>
+        {
+            var todo = new Todo
+            {
+                Title = newTodo.Title,
+                OwnerId = owner.Id
+            };
+
+            db.Todos.Add(todo);
+            await db.SaveChangesAsync();
+            
+            return TypedResults.Created($"/todos/{todo.Id}", newTodo.AsTodoItemResponse(todo.Id));
+        })
+        .DescribeCreateTodo();
+
+        group.MapPut("/{id}", async Task<Results<Ok<TodoResponse>, NotFound, BadRequest<BadRequestResponse>>> (TodoDbContext db, int id, UpdateTodoRequest todo, CurrentUser owner) =>
+        {
+            var currentTodo = await db.Todos.FindAsync(id);
+            if (currentTodo != null && currentTodo.OwnerId == owner.Id)
+            {
+                var rowsAffected = await db.Todos.Where(t => t.Id == id && t.OwnerId == owner.Id)
+                                             .ExecuteUpdateAsync(updates =>
+                                                updates.SetProperty(t => t.IsComplete, todo.IsComplete)
+                                                       .SetProperty(t => t.Title, todo.Title));
+
+                return TypedResults.Ok(todo.AsTodoItemResponse(id));
+            }
+            else
+            {
+                return TypedResults.NotFound();
+            }
+        })
+        .DescribeUpdateTodo();
+
+        group.MapDelete("/{id}", async Task<Results<Ok, NotFound>> (TodoDbContext db, int id, CurrentUser owner) =>
+        {
+            var rowsAffected = await db.Todos.Where(t => t.Id == id && t.OwnerId == owner.Id)
+                                             .ExecuteDeleteAsync();
+
+            return rowsAffected == 0 ? TypedResults.NotFound() : TypedResults.Ok();
+        })
+        .DescribeDeleteTodo(); ;
+
+        return group;
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/Todos/TodoResponse.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+
+namespace TodoApi.Todos
+{
+    public class TodoResponse
+    {
+        [DefaultValue("1")]
+        public int Id { get; set; }
+        [DefaultValue("Something todo in the future")]
+        public string Title { get; set; } = default!;
+        [DefaultValue(false)]
+        public bool IsComplete { get; set; }
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/GenericResponse/BadRequestResponse.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using static TodoApi.Extensions.DescribeSwaggerExtensions;
+using System.ComponentModel;
+
+namespace TodoApi.GenericResponse
+{
+    public class BadRequestResponse
+    {
+        [DefaultValue("https://tools.ietf.org/html/rfc7231#section-6.5.1")]
+        public string Type { get; set; } = "https://tools.ietf.org/html/rfc7231#section-6.5.1";
+
+        [DefaultValue("One or more validation errors occurred.")]
+        public string Title { get; set; } = "One or more validation errors occurred.";
+
+        [DefaultValue(400)]
+        public int Status { get; set; } = 400;
+
+        [DictionaryDefault("property", new string[] { "The field <property> is an invalid field (...)" })]
+        public Dictionary<string, string[]> Errors { get; set; }
+
+        public static BadRequestResponse BuildFrom(Dictionary<string, string[]> errors)
+        {
+            return new BadRequestResponse { Errors = errors };
+        }
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/Migrations/20221123165051_RemoveIsAdmin.Designer.cs
+```
+//BEGINFILEHERE##
+
+ï»¿// <auto-generated />
+using System;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using TodoApi;
+
+#nullable disable
+
+namespace TodoApi.Migrations
+{
+    [DbContext(typeof(TodoDbContext))]
+    [Migration("20221123165051_RemoveIsAdmin")]
+    partial class RemoveIsAdmin
+    {
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder.HasAnnotation("ProductVersion", "7.0.0");
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedName")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("RoleNameIndex");
+
+                    b.ToTable("AspNetRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RoleId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetRoleClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProviderKey")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProviderDisplayName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("LoginProvider", "ProviderKey");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserLogins", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RoleId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("UserId", "RoleId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetUserRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("UserId", "LoginProvider", "Name");
+
+                    b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("Todo", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsComplete")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("OwnerId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerId");
+
+                    b.ToTable("Todos");
+                });
+
+            modelBuilder.Entity("TodoApi.TodoUser", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("AccessFailedCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("EmailConfirmed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("LockoutEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("LockoutEnd")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("PhoneNumberConfirmed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedEmail")
+                        .HasDatabaseName("EmailIndex");
+
+                    b.HasIndex("NormalizedUserName")
+                        .IsUnique()
+                        .HasDatabaseName("UserNameIndex");
+
+                    b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Todo", b =>
+                {
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .HasPrincipalKey("UserName")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+#pragma warning restore 612, 618
+        }
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/Migrations/20221123071234_Initial.Designer.cs
+```
+//BEGINFILEHERE##
+
+ï»¿// <auto-generated />
+using System;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using TodoApi;
+
+#nullable disable
+
+namespace TodoApi.Migrations
+{
+    [DbContext(typeof(TodoDbContext))]
+    [Migration("20221123071234_Initial")]
+    partial class Initial
+    {
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder.HasAnnotation("ProductVersion", "7.0.0");
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedName")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("RoleNameIndex");
+
+                    b.ToTable("AspNetRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RoleId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetRoleClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProviderKey")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProviderDisplayName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("LoginProvider", "ProviderKey");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserLogins", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RoleId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("UserId", "RoleId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetUserRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("UserId", "LoginProvider", "Name");
+
+                    b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("Todo", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsComplete")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("OwnerId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerId");
+
+                    b.ToTable("Todos");
+                });
+
+            modelBuilder.Entity("TodoApi.TodoUser", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("AccessFailedCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("EmailConfirmed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsAdmin")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("LockoutEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("LockoutEnd")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("PhoneNumberConfirmed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedEmail")
+                        .HasDatabaseName("EmailIndex");
+
+                    b.HasIndex("NormalizedUserName")
+                        .IsUnique()
+                        .HasDatabaseName("UserNameIndex");
+
+                    b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Todo", b =>
+                {
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .HasPrincipalKey("UserName")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+#pragma warning restore 612, 618
+        }
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/Migrations/TodoDbContextModelSnapshot.cs
+```
+//BEGINFILEHERE##
+
+ï»¿// <auto-generated />
+using System;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using TodoApi;
+
+#nullable disable
+
+namespace TodoApi.Migrations
+{
+    [DbContext(typeof(TodoDbContext))]
+    partial class TodoDbContextModelSnapshot : ModelSnapshot
+    {
+        protected override void BuildModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder.HasAnnotation("ProductVersion", "7.0.0");
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedName")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("RoleNameIndex");
+
+                    b.ToTable("AspNetRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RoleId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetRoleClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProviderKey")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProviderDisplayName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("LoginProvider", "ProviderKey");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserLogins", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RoleId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("UserId", "RoleId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetUserRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("UserId", "LoginProvider", "Name");
+
+                    b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("Todo", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsComplete")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("OwnerId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerId");
+
+                    b.ToTable("Todos");
+                });
+
+            modelBuilder.Entity("TodoApi.TodoUser", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("AccessFailedCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("EmailConfirmed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("LockoutEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("LockoutEnd")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("PhoneNumberConfirmed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedEmail")
+                        .HasDatabaseName("EmailIndex");
+
+                    b.HasIndex("NormalizedUserName")
+                        .IsUnique()
+                        .HasDatabaseName("UserNameIndex");
+
+                    b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Todo", b =>
+                {
+                    b.HasOne("TodoApi.TodoUser", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .HasPrincipalKey("UserName")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+#pragma warning restore 612, 618
+        }
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/Migrations/20221123071234_Initial.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using System;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace TodoApi.Migrations
+{
+    /// <inheritdoc />
+    public partial class Initial : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.CreateTable(
+                name: "AspNetRoles",
+                columns: table => new
+                {
+                    Id = table.Column<string>(type: "TEXT", nullable: false),
+                    Name = table.Column<string>(type: "TEXT", maxLength: 256, nullable: true),
+                    NormalizedName = table.Column<string>(type: "TEXT", maxLength: 256, nullable: true),
+                    ConcurrencyStamp = table.Column<string>(type: "TEXT", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AspNetRoles", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "AspNetUsers",
+                columns: table => new
+                {
+                    Id = table.Column<string>(type: "TEXT", nullable: false),
+                    IsAdmin = table.Column<bool>(type: "INTEGER", nullable: false),
+                    UserName = table.Column<string>(type: "TEXT", maxLength: 256, nullable: false),
+                    NormalizedUserName = table.Column<string>(type: "TEXT", maxLength: 256, nullable: true),
+                    Email = table.Column<string>(type: "TEXT", maxLength: 256, nullable: true),
+                    NormalizedEmail = table.Column<string>(type: "TEXT", maxLength: 256, nullable: true),
+                    EmailConfirmed = table.Column<bool>(type: "INTEGER", nullable: false),
+                    PasswordHash = table.Column<string>(type: "TEXT", nullable: true),
+                    SecurityStamp = table.Column<string>(type: "TEXT", nullable: true),
+                    ConcurrencyStamp = table.Column<string>(type: "TEXT", nullable: true),
+                    PhoneNumber = table.Column<string>(type: "TEXT", nullable: true),
+                    PhoneNumberConfirmed = table.Column<bool>(type: "INTEGER", nullable: false),
+                    TwoFactorEnabled = table.Column<bool>(type: "INTEGER", nullable: false),
+                    LockoutEnd = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    LockoutEnabled = table.Column<bool>(type: "INTEGER", nullable: false),
+                    AccessFailedCount = table.Column<int>(type: "INTEGER", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AspNetUsers", x => x.Id);
+                    table.UniqueConstraint("AK_AspNetUsers_UserName", x => x.UserName);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "AspNetRoleClaims",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    RoleId = table.Column<string>(type: "TEXT", nullable: false),
+                    ClaimType = table.Column<string>(type: "TEXT", nullable: true),
+                    ClaimValue = table.Column<string>(type: "TEXT", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AspNetRoleClaims", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_AspNetRoleClaims_AspNetRoles_RoleId",
+                        column: x => x.RoleId,
+                        principalTable: "AspNetRoles",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "AspNetUserClaims",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    UserId = table.Column<string>(type: "TEXT", nullable: false),
+                    ClaimType = table.Column<string>(type: "TEXT", nullable: true),
+                    ClaimValue = table.Column<string>(type: "TEXT", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AspNetUserClaims", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_AspNetUserClaims_AspNetUsers_UserId",
+                        column: x => x.UserId,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "AspNetUserLogins",
+                columns: table => new
+                {
+                    LoginProvider = table.Column<string>(type: "TEXT", nullable: false),
+                    ProviderKey = table.Column<string>(type: "TEXT", nullable: false),
+                    ProviderDisplayName = table.Column<string>(type: "TEXT", nullable: true),
+                    UserId = table.Column<string>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AspNetUserLogins", x => new { x.LoginProvider, x.ProviderKey });
+                    table.ForeignKey(
+                        name: "FK_AspNetUserLogins_AspNetUsers_UserId",
+                        column: x => x.UserId,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "AspNetUserRoles",
+                columns: table => new
+                {
+                    UserId = table.Column<string>(type: "TEXT", nullable: false),
+                    RoleId = table.Column<string>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AspNetUserRoles", x => new { x.UserId, x.RoleId });
+                    table.ForeignKey(
+                        name: "FK_AspNetUserRoles_AspNetRoles_RoleId",
+                        column: x => x.RoleId,
+                        principalTable: "AspNetRoles",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_AspNetUserRoles_AspNetUsers_UserId",
+                        column: x => x.UserId,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "AspNetUserTokens",
+                columns: table => new
+                {
+                    UserId = table.Column<string>(type: "TEXT", nullable: false),
+                    LoginProvider = table.Column<string>(type: "TEXT", nullable: false),
+                    Name = table.Column<string>(type: "TEXT", nullable: false),
+                    Value = table.Column<string>(type: "TEXT", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AspNetUserTokens", x => new { x.UserId, x.LoginProvider, x.Name });
+                    table.ForeignKey(
+                        name: "FK_AspNetUserTokens_AspNetUsers_UserId",
+                        column: x => x.UserId,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Todos",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    Title = table.Column<string>(type: "TEXT", nullable: false),
+                    IsComplete = table.Column<bool>(type: "INTEGER", nullable: false),
+                    OwnerId = table.Column<string>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Todos", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Todos_AspNetUsers_OwnerId",
+                        column: x => x.OwnerId,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "UserName",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AspNetRoleClaims_RoleId",
+                table: "AspNetRoleClaims",
+                column: "RoleId");
+
+            migrationBuilder.CreateIndex(
+                name: "RoleNameIndex",
+                table: "AspNetRoles",
+                column: "NormalizedName",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AspNetUserClaims_UserId",
+                table: "AspNetUserClaims",
+                column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AspNetUserLogins_UserId",
+                table: "AspNetUserLogins",
+                column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AspNetUserRoles_RoleId",
+                table: "AspNetUserRoles",
+                column: "RoleId");
+
+            migrationBuilder.CreateIndex(
+                name: "EmailIndex",
+                table: "AspNetUsers",
+                column: "NormalizedEmail");
+
+            migrationBuilder.CreateIndex(
+                name: "UserNameIndex",
+                table: "AspNetUsers",
+                column: "NormalizedUserName",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Todos_OwnerId",
+                table: "Todos",
+                column: "OwnerId");
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropTable(
+                name: "AspNetRoleClaims");
+
+            migrationBuilder.DropTable(
+                name: "AspNetUserClaims");
+
+            migrationBuilder.DropTable(
+                name: "AspNetUserLogins");
+
+            migrationBuilder.DropTable(
+                name: "AspNetUserRoles");
+
+            migrationBuilder.DropTable(
+                name: "AspNetUserTokens");
+
+            migrationBuilder.DropTable(
+                name: "Todos");
+
+            migrationBuilder.DropTable(
+                name: "AspNetRoles");
+
+            migrationBuilder.DropTable(
+                name: "AspNetUsers");
+        }
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/Migrations/20221123165051_RemoveIsAdmin.cs
+```
+//BEGINFILEHERE##
+
+ï»¿using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace TodoApi.Migrations
+{
+    /// <inheritdoc />
+    public partial class RemoveIsAdmin : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropColumn(
+                name: "IsAdmin",
+                table: "AspNetUsers");
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.AddColumn<bool>(
+                name: "IsAdmin",
+                table: "AspNetUsers",
+                type: "INTEGER",
+                nullable: false,
+                defaultValue: false);
+        }
+    }
+}
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/TodoApi.csproj
+```
+//BEGINFILEHERE##
+
+ï»¿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <UserSecretsId>e616b306-8ad0-4843-a0e0-79b3b5655c22</UserSecretsId>
+    <ContainerImageName>todo-api</ContainerImageName>
+    <ContainerImageTag>latest</ContainerImageTag>
+    <GenerateDocumentationFile>False</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+    <PackageReference Include="Microsoft.NET.Build.Containers" />
+    <PackageReference Include="Microsoft.OpenApi" />
+    <PackageReference Include="MiniValidation" />
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol.Logs" />
+    <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.EventCounters" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.EntityFrameworkCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Process" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+    <PackageReference Include="Swashbuckle.AspNetCore.Annotations" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="TodoApi" />
+    <InternalsVisibleTo Include="TodoApi.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="appsettings.Development.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Update="appsettings.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>
+
+
+//ENDFILEHERE##
+```
+
+TodoApi/Program.cs
+```
+//BEGINFILEHERE##
+
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Cryptography;
+using TodoApi.Extensions;
+using static TodoApi.AuthorizationHandlerExtensions;
+using static TodoApi.CurrentUserExtensions;
+
+public class Program
+{
+    public static void Main(string[] args)
+    {
+        var builder = WebApplication.CreateBuilder(args);
+
+        // Configure auth
+        builder.Services.AddAuthentication().AddJwtBearer();
+        builder.Services.AddAuthorizationBuilder();
+        builder.Services.AddScoped<IAuthorizationHandler, CheckCurrentUserAuthHandler>();
+
+        // Add the service to generate JWT tokens
+        builder.Services.AddSingleton<ITokenService, TokenService>();
+
+        // Configure the database
+        var connectionString = builder.Configuration.GetConnectionString("Todos") ?? "Data Source=.db/Todos.db";
+        builder.Services.AddSqlite<TodoDbContext>(connectionString);
+
+        // Configure identity
+        builder.Services.AddIdentityCore<TodoUser>()
+                        .AddEntityFrameworkStores<TodoDbContext>();
+
+        // State that represents the current user from the database *and* the request
+        builder.Services.AddScoped<CurrentUser>();
+        builder.Services.AddScoped<IClaimsTransformation, ClaimsTransformation>();
+
+        // Configure Open API
+        builder.Services.AddEndpointsApiExplorer();
+        builder.Services.AddSwaggerGen(o => {
+            o.DescribeApi();
+        });
+
+        // Configure rate limiting
+        builder.Services.AddRateLimiting();
+
+        // Configure OpenTelemetry
+        builder.AddOpenTelemetry();
+
+        var app = builder.Build();
+
+        using (var scope = app.Services.CreateScope())
+        {
+            var services = scope.ServiceProvider;
+            try
+            {
+                var databasePath = Path.GetDirectoryName(connectionString.Split("=", 2)[1]);
+                if (!Directory.Exists(databasePath))
+                {
+                    Directory.CreateDirectory(databasePath);
+                }
+
+                var context = services.GetRequiredService<TodoDbContext>();
+                context.Database.EnsureCreated();
+            }
+            catch (Exception ex)
+            {
+                var logger = services.GetRequiredService<ILogger<Program>>();
+                logger.LogError(ex, "Error to apply migrations");
+            }
+        }
+        
+        app.UseSwagger();
+        app.UseSwaggerUI();
+
+        app.UseRateLimiter();
+
+        app.Map("/", () => Results.Redirect("/swagger"));
+
+        // Configure the APIs
+        app.MapTodos();
+        app.MapUsers();
+
+        // Configure the prometheus endpoint for scraping metrics
+        app.MapPrometheusScrapingEndpoint();
+        // NOTE: This should only be exposed on an internal port!
+        // .RequireHost("*:9100");
+
+        app.Run();
+    }
+}
+
+//ENDFILEHERE##
+```
+
+TodoApi.sln
+```
+//BEGINFILEHERE##
+
+ï»¿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31717.71
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TodoApi", "TodoApi\TodoApi.csproj", "{8B1F6F88-C84A-4D2F-A648-EDDCA6BD7943}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TodoApi.Tests", "TodoApi.Tests\TodoApi.Tests.csproj", "{0A9F94AE-38A9-426D-A643-1F5582544318}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{7FAB2FEF-77C3-4519-AA2E-0CCCDFE1FC13}"
+	ProjectSection(SolutionItems) = preProject
+		Directory.Build.props = Directory.Build.props
+		README.md = README.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "llm-test-generation-files", "llm-test-generation-files", "{0466BD61-048D-4882-A45B-CD770EB9180E}"
+	ProjectSection(SolutionItems) = preProject
+		llm-test-generation-files\openapi.json = llm-test-generation-files\openapi.json
+		llm-test-generation-files\script.txt = llm-test-generation-files\script.txt
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "reports", "reports", "{6BB3E33A-38CD-4D83-8A66-7EBD74286B73}"
+	ProjectSection(SolutionItems) = preProject
+		llm-test-generation-files\reports\mutation-report.html = llm-test-generation-files\reports\mutation-report.html
+		llm-test-generation-files\reports\result.cobertura.xml = llm-test-generation-files\reports\result.cobertura.xml
+		llm-test-generation-files\reports\result.opencover.xml = llm-test-generation-files\reports\result.opencover.xml
+		llm-test-generation-files\reports\result.xunit.xml = llm-test-generation-files\reports\result.xunit.xml
+		llm-test-generation-files\reports\test_coverage.png = llm-test-generation-files\reports\test_coverage.png
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8B1F6F88-C84A-4D2F-A648-EDDCA6BD7943}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8B1F6F88-C84A-4D2F-A648-EDDCA6BD7943}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8B1F6F88-C84A-4D2F-A648-EDDCA6BD7943}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8B1F6F88-C84A-4D2F-A648-EDDCA6BD7943}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0A9F94AE-38A9-426D-A643-1F5582544318}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0A9F94AE-38A9-426D-A643-1F5582544318}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0A9F94AE-38A9-426D-A643-1F5582544318}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0A9F94AE-38A9-426D-A643-1F5582544318}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{0466BD61-048D-4882-A45B-CD770EB9180E} = {7FAB2FEF-77C3-4519-AA2E-0CCCDFE1FC13}
+		{6BB3E33A-38CD-4D83-8A66-7EBD74286B73} = {0466BD61-048D-4882-A45B-CD770EB9180E}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {28EAB679-0C71-494A-A1EC-D29DEDDD402E}
+	EndGlobalSection
+EndGlobal
+
+
+//ENDFILEHERE##
+```
+
+openapi.json
+```
+//BEGINFILEHERE##
+
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Simple Todo API",
+    "description": "API to manage a simple Todo List with user auth control.",
+    "contact": {
+      "name": "David Fowler",
+      "url": "https://github.com/davidfowl"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "http://opensource.org/licenses/MIT"
+    },
+    "version": "v1"
+  },
+  "paths": {
+    "/todos": {
+      "get": {
+        "tags": [
+          "Todos"
+        ],
+        "summary": "List all todos",
+        "description": "This endpoint list all existing todos that the user has created. If current user has no todos, an empty array will be returned.",
+        "responses": {
+          "200": {
+            "description": "Todos listed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TodoResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": [
+              
+            ]
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Todos"
+        ],
+        "summary": "Create a todo",
+        "description": "This endpoint creates new todo with a simple title (description) always incomplete.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTodoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Todo created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid title",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": [
+              
+            ]
+          }
+        ]
+      }
+    },
+    "/todos/{id}": {
+      "get": {
+        "tags": [
+          "Todos"
+        ],
+        "summary": "Get a todo",
+        "description": "This endpoint consult an existing todo. It can only be done by the user who created the todo.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id of an existing todo created by the user who owns the authentication token.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Todo consulted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodoResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Todo does not exists or user is not the owner"
+          }
+        },
+        "security": [
+          {
+            "Bearer": [
+              
+            ]
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Todos"
+        ],
+        "summary": "Update a todo",
+        "description": "This endpoint updates an existing todo with a simple title (description) and its status (isComplete). It can only be done by the user who created the todo and can also be used to mark or unmark a todo as complete.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id of an existing todo created by the user who owns the authentication token.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTodoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Todo updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid title or missing isComplete",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Todo does not exists or user is not the owner"
+          }
+        },
+        "security": [
+          {
+            "Bearer": [
+              
+            ]
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Todos"
+        ],
+        "summary": "Delete a todo",
+        "description": "This endpoint deletes an existing todo. It can only be done by the user who created the todo.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id of an existing todo created by the user who owns the authentication token.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Todo deleted successfully"
+          },
+          "404": {
+            "description": "Todo does not exists or user is not the owner"
+          }
+        },
+        "security": [
+          {
+            "Bearer": [
+              
+            ]
+          }
+        ]
+      }
+    },
+    "/users": {
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Create an user",
+        "description": "This endpoint creates new user with an username and password.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "User created successfully"
+          },
+          "400": {
+            "description": "Invalid fields or user already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/token": {
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Authenticate user",
+        "description": "Generate a valid token to authenticate Todos endpoints by username and password.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Token generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BadRequestResponse": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "default": "https://tools.ietf.org/html/rfc7231#section-6.5.1"
+          },
+          "title": {
+            "type": "string",
+            "default": "One or more validation errors occurred."
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "default": 400
+          },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "default": {
+              "property": [
+                "The field <property> is an invalid field (...)"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateTodoRequest": {
+        "required": [
+          "title"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string",
+            "description": "Title is the description from todo and must be between 1 and 256 characters long.",
+            "default": "Something todo in the future"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateUserRequest": {
+        "required": [
+          "password",
+          "username"
+        ],
+        "type": "object",
+        "properties": {
+          "username": {
+            "maxLength": 20,
+            "minLength": 1,
+            "type": "string",
+            "description": "Username must be between 1 and 20 characters long, can only contain uppercase and lowercase letters (a-z, A-Z), numbers (0-9), and the following special characters: hyphen (-), period (.), underscore (_), at symbol (@), and plus sign (+) and must not exist in the database.",
+            "default": "my_username"
+          },
+          "password": {
+            "maxLength": 32,
+            "minLength": 6,
+            "type": "string",
+            "description": "Password must be between 6 and 32 characters long, contain at least one uppercase letter, one lowercase letter, one digit, and one non-alphanumeric character.",
+            "default": "P@ssw0rd"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TodoResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "default": "1"
+          },
+          "title": {
+            "type": "string",
+            "default": "Something todo in the future"
+          },
+          "isComplete": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "TokenResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Valid token to authenticate todos endpoints with header `Authorization: Bearer eyJhbGc...`",
+            "default": "eyJhbGc..."
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateTodoRequest": {
+        "required": [
+          "isComplete",
+          "title"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string",
+            "description": "Title is the description from todo and must be between 1 and 256 characters long.",
+            "default": "Something todo in the future"
+          },
+          "isComplete": {
+            "type": "boolean",
+            "description": "IsComplete is a boolean flag indicating that a todo has been completed. It can be marked again as incomplete.",
+            "default": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "Bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Json Web Token"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Users",
+      "description": "Users management operations"
+    },
+    {
+      "name": "Todos",
+      "description": "Todo list management operations"
+    }
+  ]
+}
+
+//ENDFILEHERE##
+```
+
+Requests/todo.http
+```
+//BEGINFILEHERE##
+
+### Create a user
+@password = <put a password here>
+
+POST http://localhost:5000/users
+Content-Type: application/json
+
+{
+    "username": "myuser",
+    "password": "{{password}}"
+}
+
+### Get a token
+
+POST http://localhost:5000/users/token
+Content-Type: application/json
+
+{
+    "username": "myuser",
+    "password": "{{password}}"
+}
+
+@token = <put JWT token here>
+
+### Create a todo
+
+POST http://localhost:5000/todos
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "title": "Get a haircut"
+}
+
+### Get all todos
+
+GET http://localhost:5000/todos
+Authorization: Bearer {{token}}
+
+### Delete a todo
+DELETE http://localhost:5000/todos/1
+Authorization: Bearer {{token}}
+
+//ENDFILEHERE##
+```
+
+Directory.Packages.props
+```
+//BEGINFILEHERE##
+
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="coverlet.msbuild" Version="6.0.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageVersion>
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="7.0.0" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="7.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="7.0.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.4.0" />
+    <PackageVersion Include="Swashbuckle.AspNetCore.Annotations" Version="6.8.1" />
+    <PackageVersion Include="xunit" Version="2.4.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.4.5" />
+    <PackageVersion Include="coverlet.collector" Version="3.2.0" />
+    <PackageVersion Include="XunitXml.TestLogger" Version="4.0.254" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="7.0.5" />
+    <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="7.0.5" />
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="7.0.20" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="7.0.5" PrivateAssets="all" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="7.0.5" />
+    <PackageVersion Include="Microsoft.NET.Build.Containers" Version="0.4.0" />
+    <PackageVersion Include="Microsoft.OpenApi" Version="1.6.22" />
+    <PackageVersion Include="MiniValidation" Version="0.7.4" />
+    <PackageVersion Include="Swashbuckle.AspNetCore" Version="6.8.1" />
+    <PackageVersion Include="AspNet.Security.OAuth.GitHub" Version="7.0.2" />
+    <PackageVersion Include="Auth0.AspNetCore.Authentication" Version="1.2.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.Google" Version="7.0.5" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.MicrosoftAccount" Version="7.0.5" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="7.0.5" />
+    <PackageVersion Include="Yarp.ReverseProxy" Version="2.0.0" />
+    <PackageVersion Include="Microsoft.Tye.Extensions.Configuration" Version="0.10.0-alpha.21420.1" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="7.0.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="7.0.0" PrivateAssets="all" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="7.0.0" />
+  </ItemGroup>
+  <!-- OpenTelemetry -->
+  <ItemGroup>
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.4.0-rc.3" />
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol.Logs" Version="1.4.0-rc.3" />
+    <PackageVersion Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.4.0-rc.3" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.4.0-rc.3" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.EventCounters" Version="1.0.0-alpha.2" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.0.0-rc9.12" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.EntityFrameworkCore" Version="1.0.0-beta.4" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.0.0-rc9.12" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Process" Version="1.0.0-alpha.5" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.1.0-beta.4" />
+  </ItemGroup>
+</Project>
+
+//ENDFILEHERE##
+```
+
+Directory.Build.props
+```
+//BEGINFILEHERE##
+
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>
+
+//ENDFILEHERE##
+```
+
+
+Você precisa gerar o TSL (Test Specification Language) para todos os endpoints do arquivo openapi.json. O TSL deve ser otimizado para cobertura de 100%. Importante que os resultados esperados também sejam apontados, como status code e todos os parâmetros do json retornado.
+
+Você deve retornar somente o conteúdo do arquivo .yaml contendo o TSL gerado. Sem nenhum texto adicional.
